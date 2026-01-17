@@ -20,8 +20,13 @@ const ImportModal: React.FC<ImportModalProps> = ({ onClose, onSuccess }) => {
   
   const session = authService.getSession();
 
+  // DO: Fetch sources asynchronously and update state
   useEffect(() => {
-    setSources(storageService.getSources());
+    const fetchSources = async () => {
+      const data = await storageService.getSources();
+      setSources(data);
+    };
+    fetchSources();
   }, []);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -79,11 +84,13 @@ const ImportModal: React.FC<ImportModalProps> = ({ onClose, onSuccess }) => {
       status: 'PROCESSANDO'
     };
 
-    storageService.saveImportJob(initialJob);
+    // DO: await async storage calls
+    await storageService.saveImportJob(initialJob);
     await new Promise(resolve => setTimeout(resolve, 600));
 
     try {
-      const { inserted, ignored } = storageService.saveTransactions(preview, jobId, session.user.id);
+      // Fix: added await for saveTransactions which is an async function
+      const { inserted, ignored } = await storageService.saveTransactions(preview, jobId, session.user.id);
 
       const finalJob: ImportJob = {
         ...initialJob,
@@ -92,14 +99,16 @@ const ImportModal: React.FC<ImportModalProps> = ({ onClose, onSuccess }) => {
         status: inserted > 0 ? 'CONCLUÍDA' : 'CONCLUÍDA_COM_ALERTAS'
       };
 
-      storageService.saveImportJob(finalJob);
-      storageService.logAction(session.user.id, session.user.name, 'IMPORTACAO', `Importou arquivo ${file.name} com ${inserted} lançamentos novos`);
+      // DO: await async storage calls
+      await storageService.saveImportJob(finalJob);
+      await storageService.logAction(session.user.id, session.user.name, 'IMPORTACAO', `Importou arquivo ${file.name} com ${inserted} lançamentos novos`);
       
       onSuccess();
       onClose();
       alert(`Importação concluída!\n- Inseridas: ${inserted}\n- Ignoradas: ${ignored}`);
     } catch (err) {
-      storageService.saveImportJob({ ...initialJob, status: 'ERRO', errorCount: 1 });
+      // DO: await async storage calls
+      await storageService.saveImportJob({ ...initialJob, status: 'ERRO', errorCount: 1 });
       alert("Ocorreu um erro crítico durante a gravação dos dados.");
     } finally {
       setLoading(false);

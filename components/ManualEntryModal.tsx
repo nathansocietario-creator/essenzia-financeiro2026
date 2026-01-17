@@ -28,8 +28,13 @@ const ManualEntryModal: React.FC<ManualEntryModalProps> = ({ onClose, onSuccess 
   
   const session = authService.getSession();
 
+  // DO: Fetch sources asynchronously and update state
   useEffect(() => {
-    setSources(storageService.getSources());
+    const fetchSources = async () => {
+      const data = await storageService.getSources();
+      setSources(data);
+    };
+    fetchSources();
   }, []);
 
   const outCategories = [
@@ -60,7 +65,8 @@ const ManualEntryModal: React.FC<ManualEntryModalProps> = ({ onClose, onSuccess 
     setIsClassifying(false);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // DO: make handleSubmit async to await storage calls
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!session) return;
 
@@ -84,9 +90,11 @@ const ManualEntryModal: React.FC<ManualEntryModalProps> = ({ onClose, onSuccess 
       createdBy: session.user.id
     };
 
-    const { inserted } = storageService.saveTransactions([transaction], undefined, session.user.id);
+    // Fix: added await for saveTransactions call which returns a Promise
+    const { inserted } = await storageService.saveTransactions([transaction], undefined, session.user.id);
     if (inserted > 0) {
-      storageService.logAction(session.user.id, session.user.name, 'LANCAMENTO_MANUAL', `Lançou manualmente: ${formData.description} (${formData.category})`);
+      // DO: await async storage calls
+      await storageService.logAction(session.user.id, session.user.name, 'LANCAMENTO_MANUAL', `Lançou manualmente: ${formData.description} (${formData.category})`);
       onSuccess();
       onClose();
     } else {
