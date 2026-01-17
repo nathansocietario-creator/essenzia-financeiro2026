@@ -63,21 +63,26 @@ const AppContent: React.FC = () => {
     }
   }, [session, location.pathname]);
 
-  const refreshData = () => {
-    setTransactions(storageService.getTransactions());
-    setSources(storageService.getSources());
-    setUsers(storageService.getUsers());
+  const refreshData = async () => {
+    const [tData, sData, uData] = await Promise.all([
+      storageService.getTransactions(),
+      storageService.getSources(),
+      storageService.getUsers()
+    ]);
+    setTransactions(tData);
+    setSources(sData);
+    setUsers(uData);
   };
 
-  const handleLogout = () => {
-    authService.logout();
+  const handleLogout = async () => {
+    await authService.logout();
     setSession(null);
   };
 
   const filteredTransactions = useMemo(() => {
     return transactions.filter(t => {
-      const matchMonth = t.month === filters.month;
-      const matchYear = t.year === filters.year;
+      const matchMonth = Number(t.month) === Number(filters.month);
+      const matchYear = Number(t.year) === Number(filters.year);
       const matchSource = filters.source === 'ALL' || t.source === filters.source;
       const matchStatus = filters.status === 'ALL' || t.status === filters.status;
       const matchType = filters.type === 'ALL' || t.type === filters.type;
@@ -192,7 +197,7 @@ const AppContent: React.FC = () => {
               <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Sistema Conectado</p>
               <p className="text-xs font-bold text-emerald-500 flex items-center justify-end gap-1">
                 <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></span>
-                Autenticado
+                Supabase Online
               </p>
             </div>
           </div>

@@ -41,6 +41,19 @@ export interface FinancialInstitution {
   color?: string;
 }
 
+export interface CategoryBudget {
+  category: string;
+  amount: number;
+  type: TransactionType;
+}
+
+export interface MonthlyBudget {
+  id: string; // YYYY-MM
+  year: number;
+  month: number;
+  budgets: CategoryBudget[];
+}
+
 export interface Transaction {
   id?: string;
   date: string;
@@ -63,8 +76,8 @@ export interface Transaction {
   month: number;
   year: number;
   originalId?: string;
-  createdBy?: string; // Audit
-  updatedBy?: string; // Audit
+  createdBy?: string;
+  updatedBy?: string;
 }
 
 export interface ImportJob {
@@ -72,7 +85,7 @@ export interface ImportJob {
   timestamp: string;
   source: TransactionSource;
   userName: string;
-  userId: string; // Audit
+  userId: string;
   fileName: string;
   periodStart: string;
   periodEnd: string;
@@ -90,7 +103,7 @@ export interface MonthlyClosing {
   year: number;
   closedAt: string;
   closedBy: string;
-  closedById: string; // Audit
+  closedById: string;
   snapshot: {
     totalIn: number;
     totalOut: number;
