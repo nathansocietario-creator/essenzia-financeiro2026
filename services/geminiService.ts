@@ -4,7 +4,6 @@ import { Transaction } from '../types';
 
 export const categorizeTransaction = async (description: string): Promise<{category: string, confidence: number}> => {
   try {
-    // Always initialize GoogleGenAI inside the function to ensure up-to-date API key usage
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
@@ -54,10 +53,53 @@ export const categorizeTransaction = async (description: string): Promise<{categ
       }
     });
 
-    const result = JSON.parse(response.text);
-    return result;
+    return JSON.parse(response.text);
   } catch (error) {
     console.error("Gemini classification failed", error);
     return { category: 'Outros', confidence: 50 };
+  }
+};
+
+export const generateStrategicInsights = async (
+  monthSummary: any, 
+  previousMonthSummary: any, 
+  budgets: any[]
+): Promise<string[]> => {
+  try {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const prompt = `Você é um CFO Virtual Sênior especializado em Gestão de Escritórios de Contabilidade.
+    Analise os dados financeiros abaixo e forneça 3 a 4 insights ESTRATÉGICOS, curtos e acionáveis.
+    
+    DADOS ATUAIS:
+    - Faturamento: R$ ${monthSummary.totalIn}
+    - Gastos Operacionais: R$ ${monthSummary.totalOutImpact}
+    - Resultado Líquido: R$ ${monthSummary.result}
+    
+    DADOS MÊS ANTERIOR:
+    - Faturamento: R$ ${previousMonthSummary.in}
+    - Resultado: R$ ${previousMonthSummary.result}
+    
+    ORÇAMENTOS (METAS):
+    ${budgets.map(b => `- ${b.category}: Meta R$ ${b.amount}`).join('\n')}
+    
+    Foque em: detecção de anomalias, otimização de taxas bancárias, aumento de margem e cumprimento de orçamento.
+    Responda apenas com um array JSON de strings.`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.ARRAY,
+          items: { type: Type.STRING }
+        }
+      }
+    });
+
+    return JSON.parse(response.text);
+  } catch (error) {
+    console.error("Gemini Insights failed", error);
+    return ["Mantenha o acompanhamento rigoroso das despesas fixas para garantir a saúde do caixa."];
   }
 };
