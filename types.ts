@@ -2,6 +2,7 @@
 export type TransactionSource = string;
 export type TransactionType = 'ENTRADA' | 'SAIDA';
 export type TransactionStatus = 'CONFIRMADA' | 'PENDENTE';
+export type AuditStatus = 'PENDENTE' | 'AUDITADO';
 export type UserRole = 'ADMIN' | 'OPERADOR';
 
 export interface User {
@@ -13,6 +14,23 @@ export interface User {
   active: boolean;
   lastLoginAt?: string;
   createdAt: string;
+}
+
+export interface UserProfile {
+  id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+  is_active: boolean;
+}
+
+export interface ModulePermission {
+  user_id: string;
+  module: 'FINANCEIRO' | 'COMERCIAL' | 'RH';
+  can_read: boolean;
+  can_write: boolean;
+  can_delete: boolean;
+  can_restore: boolean;
 }
 
 export interface AuthSession {
@@ -33,6 +51,10 @@ export interface AuditLog {
   action: string;
   details: string;
   timestamp: string;
+  transactionKey?: string;
+  oldValue?: string;
+  newValue?: string;
+  reason?: string;
 }
 
 export interface FinancialInstitution {
@@ -41,41 +63,31 @@ export interface FinancialInstitution {
   color?: string;
 }
 
-export interface CategoryBudget {
-  category: string;
-  amount: number;
-  type: TransactionType;
-}
-
-export interface MonthlyBudget {
-  id: string; // YYYY-MM
-  year: number;
-  month: number;
-  budgets: CategoryBudget[];
-}
-
 export interface Transaction {
   id?: string;
   date: string;
   description: string;
-  clientOrRecipient?: string;
   amount: number;
   type: TransactionType;
   category: string;
-  paymentMethod: string;
+  originalDate: string;
+  originalDescription: string;
+  originalAmount: number;
+  originalType: TransactionType;
+  auditStatus: AuditStatus;
+  auditedBy?: string;
+  auditedAt?: string;
+  tags?: string[];
+  observations?: string;
   source: TransactionSource;
   account: string;
-  observations?: string;
-  notes?: string;
-  tags?: string[];
+  paymentMethod: string;
   status: TransactionStatus;
   importId?: string;
-  balance?: number;
   transactionKey: string;
   confidenceScore: number;
   month: number;
   year: number;
-  originalId?: string;
   createdBy?: string;
   updatedBy?: string;
 }
@@ -109,6 +121,7 @@ export interface MonthlyClosing {
     totalOut: number;
     result: number;
     transactionCount: number;
+    pendingAuditCount: number;
   };
 }
 
@@ -119,4 +132,33 @@ export interface FilterState {
   type: 'ALL' | TransactionType;
   category: string;
   status: 'ALL' | TransactionStatus;
+  auditStatus: 'ALL' | AuditStatus;
+}
+
+export interface BackupEntry {
+  id: string;
+  created_at: string;
+  reason: string;
+  row_count: number;
+  year: number;
+  month: number;
+  created_by?: string;
+  status?: 'Íntegro' | 'Antigo' | 'Inválido';
+}
+
+export interface SnapshotDetail extends BackupEntry {
+  data_snapshot: any[];
+  audit_snapshot: any[];
+}
+
+export interface RestoreLog {
+  id: string;
+  snapshot_id: string;
+  month: number;
+  year: number;
+  restored_by: string;
+  restored_at: string;
+  reason: string;
+  restored_rows: number;
+  status: string;
 }
