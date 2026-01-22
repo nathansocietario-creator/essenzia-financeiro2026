@@ -1,55 +1,21 @@
 
-import { Transaction, ImportJob, MonthlyClosing, FinancialInstitution, User, AuditLog, MonthlyBudget } from '../types';
-import { supabase } from './supabase';
-
-const DEFAULT_SOURCES: FinancialInstitution[] = [
-  { id: 'ASAAS', name: 'Asaas' },
-  { id: 'MANUAL', name: 'Manual' }
-];
-
-const mapUserToDB = (u: User) => ({
-  id: u.id,
-  name: u.name,
-  email: u.email,
-  password_hash: u.passwordHash,
-  role: u.role,
-  active: u.active,
-  last_login_at: u.lastLoginAt,
-  created_at: u.createdAt
-});
-
-const mapUserFromDB = (u: any): User => ({
-  id: u.id,
-  name: u.name,
-  email: u.email,
-  passwordHash: u.password_hash,
-  role: u.role,
-  active: u.active,
-  lastLoginAt: u.last_login_at,
-  createdAt: u.created_at
-});
+import { Transaction, ImportJob, MonthlyClosing, FinancialInstitution, User, AuditLog } from '../types.ts';
+import { supabase } from './supabase.ts';
 
 const mapTransactionToDB = (t: Transaction) => ({
   date: t.date,
   description: t.description,
-  client_or_recipient: t.clientOrRecipient,
   amount: t.amount,
   type: t.type,
   category: t.category,
-  payment_method: t.paymentMethod,
   source: t.source,
-  account: t.account,
-  observations: t.observations,
-  notes: t.notes,
-  tags: t.tags,
   status: t.status,
+  audit_status: t.auditStatus, 
   import_id: t.importId,
-  balance: t.balance,
   transaction_key: t.transactionKey,
-  confidence_score: t.confidenceScore,
   month: t.month,
   year: t.year,
-  original_id: t.originalId,
+  observations: t.observations,
   created_by: t.createdBy,
   updated_by: t.updatedBy
 });
@@ -58,88 +24,61 @@ const mapTransactionFromDB = (t: any): Transaction => ({
   id: t.id,
   date: t.date,
   description: t.description,
-  clientOrRecipient: t.client_or_recipient,
   amount: t.amount,
   type: t.type,
   category: t.category,
-  paymentMethod: t.payment_method,
+  originalDate: t.date,
+  originalDescription: t.description,
+  originalAmount: t.amount,
+  originalType: t.type,
+  auditStatus: t.audit_status || 'PENDENTE', 
   source: t.source,
-  account: t.account,
-  observations: t.observations,
-  notes: t.notes,
-  tags: t.tags,
+  account: t.source,
+  paymentMethod: 'Arquivo',
   status: t.status,
+  observations: t.observations || '',
   importId: t.import_id,
-  balance: t.balance,
   transactionKey: t.transaction_key,
-  confidenceScore: t.confidence_score,
+  confidenceScore: 100,
   month: t.month,
   year: t.year,
-  originalId: t.original_id,
   createdBy: t.created_by,
   updatedBy: t.updated_by
 });
 
 export const storageService = {
-  // --- USERS ---
   getUsers: async (): Promise<User[]> => {
-    const { data, error } = await supabase.from('app_users').select('*').order('created_at', { ascending: false });
-    return (data || []).map(mapUserFromDB);
+    const { data } = await supabase.from('app_users').select('*').order('created_at', { ascending: false });
+    return (data || []).map(u => ({
+      id: u.id, name: u.name, email: u.email, passwordHash: u.password_hash,
+      role: u.role, active: u.active, lastLoginAt: u.last_login_at, createdAt: u.created_at
+    }));
   },
 
-  updateUser: async (id: string, updates: Partial<User>) => {
-    const dbUpdates: any = {};
-    if (updates.name) dbUpdates.name = updates.name;
-    if (updates.role) dbUpdates.role = updates.role;
-    if (updates.active !== undefined) dbUpdates.active = updates.active;
-    if (updates.lastLoginAt) dbUpdates.last_login_at = updates.lastLoginAt;
-    if (updates.passwordHash) dbUpdates.password_hash = updates.passwordHash;
-    await supabase.from('app_users').update(dbUpdates).eq('id', id);
+  updateUser: async (id: string, updates: any) => {
+    await supabase.from('app_users').update(updates).eq('id', id);
   },
 
   saveUser: async (user: User) => {
-    await supabase.from('app_users').insert([mapUserToDB(user)]);
+    await supabase.from('app_users').insert([{
+      id: user.id, name: user.name, email: user.email, password_hash: user.passwordHash,
+      role: user.role, active: user.active, created_at: user.createdAt
+    }]);
   },
 
   deleteUser: async (id: string) => {
     await supabase.from('app_users').delete().eq('id', id);
   },
 
-  // --- BUDGERS (NOVO) ---
-  getBudgets: async (year: number, month: number): Promise<MonthlyBudget | null> => {
-    const id = `${year}-${month}`;
-    const { data, error } = await supabase.from('budgets').select('*').eq('id', id).maybeSingle();
-    if (error || !data) return null;
-    return {
-      id: data.id,
-      year: data.year,
-      month: data.month,
-      budgets: data.budgets || []
-    };
-  },
-
-  saveBudget: async (budget: MonthlyBudget) => {
-    const { error } = await supabase.from('budgets').upsert([budget], { onConflict: 'id' });
-    if (error) console.error("Error saving budget:", error);
-  },
-
-  // --- AUDIT ---
-  logAction: async (userId: string, userName: string, action: string, details: string) => {
-    const log = { id: `log_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`, user_id: userId, user_name: userName, action, details, timestamp: new Date().toISOString() };
-    await supabase.from('audit_logs').insert([log]);
-  },
-
-  getAuditLogs: async (): Promise<AuditLog[]> => {
-    const { data } = await supabase.from('audit_logs').select('*').order('timestamp', { ascending: false }).limit(200);
-    return (data || []).map(l => ({ id: l.id, userId: l.user_id, userName: l.user_name, action: l.action, details: l.details, timestamp: l.timestamp }));
-  },
-
-  // --- TRANSACTIONS ---
-  saveTransactions: async (transactions: Transaction[], importId?: string, userId?: string) => {
-    const toInsert = transactions.map(t => mapTransactionToDB({ ...t, importId: importId || t.importId, createdBy: userId || t.createdBy }));
-    const { error } = await supabase.from('transactions').upsert(toInsert, { onConflict: 'transaction_key' });
+  saveTransactions: async (transactions: Transaction[]) => {
+    const toInsert = transactions.map(mapTransactionToDB);
+    const { data, error } = await supabase.from('transactions').upsert(toInsert, { 
+      onConflict: 'transaction_key',
+      ignoreDuplicates: true 
+    }).select('transaction_key');
     if (error) throw error;
-    return { inserted: transactions.length, ignored: 0 };
+    const insertedCount = (data || []).length;
+    return { inserted: insertedCount, ignored: transactions.length - insertedCount };
   },
 
   getTransactions: async (): Promise<Transaction[]> => {
@@ -148,56 +87,131 @@ export const storageService = {
   },
 
   updateTransaction: async (updated: Transaction, userId?: string) => {
-    await supabase.from('transactions').update({ ...mapTransactionToDB(updated), updated_by: userId }).eq('transaction_key', updated.transactionKey);
+    await supabase.from('transactions').update({ 
+      ...mapTransactionToDB(updated), 
+      updated_by: userId 
+    }).eq('transaction_key', updated.transactionKey);
   },
 
-  deleteTransaction: async (key: string) => {
-    await supabase.from('transactions').delete().eq('transaction_key', key);
+  logAction: async (userId: string, userName: string, action: string, details: string, extra?: Partial<AuditLog>) => {
+    const log = { 
+      user_id: userId, 
+      user_name: userName, 
+      action, 
+      details, 
+      timestamp: new Date().toISOString(),
+      transaction_key: extra?.transactionKey,
+      old_value: extra?.oldValue,
+      new_value: extra?.newValue,
+      reason: extra?.reason
+    };
+    await supabase.from('audit_logs').insert([log]);
   },
 
-  // --- SOURCES ---
+  getAuditLogs: async (): Promise<AuditLog[]> => {
+    const { data } = await supabase.from('audit_logs').select('*').order('timestamp', { ascending: false }).limit(200);
+    return (data || []).map(l => ({ 
+      id: l.id, userId: l.user_id, userName: l.user_name, action: l.action, 
+      details: l.details, timestamp: l.timestamp, 
+      transactionKey: l.transaction_key, oldValue: l.old_value, newValue: l.new_value, reason: l.reason 
+    }));
+  },
+
   getSources: async (): Promise<FinancialInstitution[]> => {
     const { data } = await supabase.from('sources').select('*');
-    if (!data || data.length === 0) return DEFAULT_SOURCES;
-    return data;
+    return data || [{ id: 'ASAAS', name: 'Asaas' }, { id: 'MANUAL', name: 'Manual' }];
   },
 
   addSource: async (name: string) => {
     const id = name.toUpperCase().replace(/\s+/g, '_');
-    await supabase.from('sources').insert([{ id, name }]);
+    const { error } = await supabase.from('sources').insert([{ id, name }]);
+    if (error) throw error;
   },
 
   deleteSource: async (id: string) => {
-    if (id === 'ASAAS' || id === 'MANUAL') return;
-    await supabase.from('sources').delete().eq('id', id);
+    const { data, error } = await supabase.from('sources').delete().eq('id', id).select();
+    if (error) throw error;
+    return { data, error };
   },
 
-  // --- IMPORT AUDIT ---
   saveImportJob: async (job: ImportJob) => {
-    const dbJob = { id: job.id, timestamp: job.timestamp, source: job.source, user_name: job.userName, user_id: job.userId, file_name: job.fileName, period_start: job.periodStart, period_end: job.periodEnd, total_lines: job.totalLines, inserted_count: job.insertedCount, ignored_count: job.ignoredCount, alert_count: job.alertCount, error_count: job.errorCount, status: job.status };
-    await supabase.from('import_jobs').upsert([dbJob], { onConflict: 'id' });
+    await supabase.from('import_jobs').upsert([{
+      id: job.id, timestamp: job.timestamp, source: job.source, user_name: job.userName, 
+      user_id: job.userId, file_name: job.fileName, period_start: job.periodStart, 
+      period_end: job.periodEnd, total_lines: job.totalLines, inserted_count: job.insertedCount, 
+      ignored_count: job.ignoredCount, status: job.status
+    }]);
   },
 
   getImportJobs: async (): Promise<ImportJob[]> => {
-    const { data } = await supabase.from('import_jobs').select('*').order('timestamp', { ascending: false }).limit(100);
-    return (data || []).map(j => ({ id: j.id, timestamp: j.timestamp, source: j.source, userName: j.user_name, userId: j.user_id, fileName: j.file_name, periodStart: j.period_start, periodEnd: j.period_end, totalLines: j.total_lines, insertedCount: j.inserted_count, ignoredCount: j.ignored_count, alertCount: j.alert_count, errorCount: j.error_count, status: j.status }));
+    const { data } = await supabase.from('import_jobs').select('*').order('timestamp', { ascending: false });
+    return (data || []).map(j => ({
+      id: j.id, timestamp: j.timestamp, source: j.source, userName: j.user_name, userId: j.user_id,
+      fileName: j.file_name, periodStart: j.period_start, periodEnd: j.period_end, totalLines: j.total_lines,
+      insertedCount: j.inserted_count, ignoredCount: j.ignored_count, alertCount: 0, errorCount: 0, status: j.status
+    }));
   },
 
-  // --- CLOSINGS ---
-  closeMonth: async (closing: MonthlyClosing) => {
-    // Fix: access closing.closedAt instead of closing.closed_at
-    const dbClosing = { id: closing.id, month: closing.month, year: closing.year, closed_at: closing.closedAt, closed_by: closing.closedBy, closed_by_id: closing.closedById, snapshot: closing.snapshot };
-    await supabase.from('closings').upsert([dbClosing], { onConflict: 'id' });
+  /**
+   * Remove permanentemente um job de importação e TODAS as suas transações vinculadas via RPC.
+   */
+  deleteImportJob: async (id: string) => {
+    const { data, error } = await supabase.rpc('delete_import_cascade', {
+      p_import_id: id
+    });
+
+    if (error) {
+      console.error("[STORAGE] Erro ao deletar importação via cascade:", error);
+      throw error;
+    }
+    return { deletedTransactions: data || 0 };
   },
 
-  getClosings: async (): Promise<MonthlyClosing[]> => {
-    const { data } = await supabase.from('closings').select('*');
-    return (data || []).map(c => ({ id: c.id, month: c.month, year: c.year, closedAt: c.closed_at, closedBy: c.closed_by, closedById: c.closed_by_id, snapshot: c.snapshot }));
+  /**
+   * Reseta um período inteiro (transações e snapshots) via RPC.
+   */
+  resetPeriod: async (month: number, year: number) => {
+    const { data, error } = await supabase.rpc('reset_period', {
+      p_month: month,
+      p_year: year
+    });
+
+    if (error) {
+      console.error("[STORAGE] Erro ao resetar período via RPC:", error);
+      throw error;
+    }
+    return data;
+  },
+
+  getPeriodClosing: async (year: number, month: number) => {
+    const period_key = `${year}-${String(month).padStart(2, '0')}`;
+    const { data, error } = await supabase
+      .from('period_closings')
+      .select('*')
+      .eq('period_key', period_key)
+      .maybeSingle();
+    
+    if (error) throw error;
+    return data;
+  },
+
+  finalizePeriod: async (month: number, year: number, userId: string): Promise<{ updated_count: number }> => {
+    const { data, error } = await supabase.rpc('finalize_period', {
+      p_month: month,
+      p_year: year,
+      p_user: userId
+    });
+    
+    if (error) {
+      console.error("[STORAGE] Erro ao finalizar período via RPC:", error);
+      throw error;
+    }
+    return { updated_count: data || 0 };
   },
 
   isMonthClosed: async (month: number, year: number): Promise<boolean> => {
-    const id = `${year}-${month}`;
-    const { data } = await supabase.from('closings').select('id').eq('id', id).maybeSingle();
-    return !!data;
+    const period_key = `${year}-${String(month).padStart(2, '0')}`;
+    const { data } = await supabase.from('period_closings').select('is_closed').eq('period_key', period_key).maybeSingle();
+    return !!data?.is_closed;
   }
 };

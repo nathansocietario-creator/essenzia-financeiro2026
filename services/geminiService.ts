@@ -53,7 +53,9 @@ export const categorizeTransaction = async (description: string): Promise<{categ
       }
     });
 
-    return JSON.parse(response.text);
+    // DO: Access response.text directly (property) and handle potential undefined value before parsing JSON.
+    const text = response.text;
+    return JSON.parse(text || '{"category": "Outros", "confidence": 0}');
   } catch (error) {
     console.error("Gemini classification failed", error);
     return { category: 'Outros', confidence: 50 };
@@ -97,7 +99,9 @@ export const generateStrategicInsights = async (
       }
     });
 
-    return JSON.parse(response.text);
+    // DO: Access response.text directly (property) and handle potential undefined value before parsing JSON.
+    const text = response.text;
+    return JSON.parse(text || '[]');
   } catch (error) {
     console.error("Gemini Insights failed", error);
     return ["Mantenha o acompanhamento rigoroso das despesas fixas para garantir a saúde do caixa."];
