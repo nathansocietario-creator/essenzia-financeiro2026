@@ -1,58 +1,133 @@
 
 import React, { useEffect, useState } from 'react';
-import { storageService } from '../services/storageService';
-import { ImportJob, FinancialInstitution } from '../types';
-import ImportModal from './ImportModal';
-import ManualEntryModal from './ManualEntryModal';
+import { storageService } from '../services/storageService.ts';
+import { ImportJob, FinancialInstitution } from '../types.ts';
+import ImportModal from './ImportModal.tsx';
+import ManualEntryModal from './ManualEntryModal.tsx';
 
 interface ImportHistoryProps {
   onRefresh: () => void;
+  currentMonth: number;
+  currentYear: number;
+  isAdmin?: boolean;
 }
 
-const ImportHistory: React.FC<ImportHistoryProps> = ({ onRefresh }) => {
+type DeleteConfirmState = {
+  isOpen: boolean;
+  type: 'JOB' | 'SOURCE' | 'RESET' | null;
+  id: string | null;
+  label: string | null;
+  error: string | null;
+  isProcessing: boolean;
+  confirmText?: string;
+};
+
+const ImportHistory: React.FC<ImportHistoryProps> = ({ onRefresh, currentMonth, currentYear, isAdmin }) => {
   const [jobs, setJobs] = useState<ImportJob[]>([]);
   const [sources, setSources] = useState<FinancialInstitution[]>([]);
   const [newSourceName, setNewSourceName] = useState('');
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  
+  const [deleteConfirm, setDeleteConfirm] = useState<DeleteConfirmState>({
+    isOpen: false,
+    type: null,
+    id: null,
+    label: null,
+    error: null,
+    isProcessing: false,
+    confirmText: ''
+  });
 
-  const refreshData = () => {
-    setJobs(storageService.getImportJobs());
-    setSources(storageService.getSources());
-    onRefresh();
+  const refreshLocalData = async () => {
+    setIsLoading(true);
+    try {
+      const [jobsData, sourcesData] = await Promise.all([
+        storageService.getImportJobs(),
+        storageService.getSources()
+      ]);
+      setJobs(jobsData || []);
+      setSources(sourcesData || []);
+    } catch (error) {
+      console.error("Erro ao atualizar histórico de importação:", error);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   useEffect(() => {
-    refreshData();
+    refreshLocalData();
   }, []);
 
-  const handleAddSource = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newSourceName.trim()) return;
-    storageService.addSource(newSourceName.trim());
-    setNewSourceName('');
-    refreshData();
+  const openDeleteJobConfirm = (id: string, fileName: string) => {
+    setDeleteConfirm({
+      isOpen: true,
+      type: 'JOB',
+      id,
+      label: fileName,
+      error: null,
+      isProcessing: false
+    });
   };
 
-  const handleDeleteSource = (id: string) => {
-    if (confirm(`Deseja remover a instituição "${sources.find(s=>s.id===id)?.name}"?\n\nAs transações já importadas sob este nome permanecerão no histórico, mas você não poderá mais selecionar esta fonte para novos lançamentos.`)) {
-      storageService.deleteSource(id);
-      refreshData();
+  const openResetPeriodConfirm = () => {
+    setDeleteConfirm({
+      isOpen: true,
+      type: 'RESET',
+      id: null,
+      label: `${currentMonth}/${currentYear}`,
+      error: null,
+      isProcessing: false,
+      confirmText: ''
+    });
+  };
+
+  const executeAction = async () => {
+    if (!deleteConfirm.type) return;
+
+    if (deleteConfirm.type === 'RESET' && deleteConfirm.confirmText !== 'RESET') {
+      setDeleteConfirm(prev => ({ ...prev, error: 'Digite RESET para confirmar.' }));
+      return;
+    }
+
+    setDeleteConfirm(prev => ({ ...prev, isProcessing: true, error: null }));
+    
+    try {
+      if (deleteConfirm.type === 'JOB' && deleteConfirm.id) {
+        // [DELETE_IMPORT_CASCADE]
+        await storageService.deleteImportJob(deleteConfirm.id);
+      } else if (deleteConfirm.type === 'RESET') {
+        // [RESET_PERIOD]
+        await storageService.resetPeriod(currentMonth, currentYear);
+      } else if (deleteConfirm.type === 'SOURCE' && deleteConfirm.id) {
+        await storageService.deleteSource(deleteConfirm.id);
+      }
+
+      setDeleteConfirm({ isOpen: false, type: null, id: null, label: null, error: null, isProcessing: false });
+      
+      // OBRIGATÓRIO: Refresh Total do App para limpar dashboard e fluxos
+      await refreshLocalData();
+      if (onRefresh) await onRefresh();
+      
+      console.log(`[ACTION_SUCCESS] ${deleteConfirm.type} concluído. Sistema resincronizado.`);
+      
+    } catch (err: any) {
+      console.error(`[ACTION_ERROR] ${deleteConfirm.type}:`, err);
+      const errorMsg = err.message || "Ocorreu um erro técnico.";
+      setDeleteConfirm(prev => ({ ...prev, isProcessing: false, error: errorMsg }));
+      alert(errorMsg);
     }
   };
 
   const getStatusBadge = (status: ImportJob['status']) => {
     switch (status) {
       case 'CONCLUÍDA':
-        return <span className="px-3 py-1 bg-emerald-50 text-emerald-600 border border-emerald-100 rounded-full text-[10px] font-black uppercase tracking-widest">Concluída</span>;
-      case 'CONCLUÍDA_COM_ALERTAS':
-        return <span className="px-3 py-1 bg-amber-50 text-amber-600 border border-amber-100 rounded-full text-[10px] font-black uppercase tracking-widest">Com Alertas</span>;
-      case 'PROCESSANDO':
-        return <span className="px-3 py-1 bg-blue-50 text-blue-600 border border-blue-100 rounded-full text-[10px] font-black uppercase tracking-widest animate-pulse">Processando</span>;
+        return <span className="px-3 py-1 bg-emerald-50 text-emerald-600 border border-emerald-100 rounded-full text-[10px] font-black uppercase">Concluída</span>;
       case 'ERRO':
-        return <span className="px-3 py-1 bg-rose-50 text-rose-600 border border-rose-100 rounded-full text-[10px] font-black uppercase tracking-widest">Erro</span>;
+        return <span className="px-3 py-1 bg-rose-50 text-rose-600 border border-rose-100 rounded-full text-[10px] font-black uppercase">Erro</span>;
       default:
-        return null;
+        return <span className="px-3 py-1 bg-blue-50 text-blue-600 border border-blue-100 rounded-full text-[10px] font-black uppercase">Processando</span>;
     }
   };
 
@@ -60,141 +135,138 @@ const ImportHistory: React.FC<ImportHistoryProps> = ({ onRefresh }) => {
     <div className="space-y-8 animate-in fade-in duration-700 pb-12">
       <div className="flex flex-col md:flex-row justify-between items-center gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-slate-950">Importações e Fontes</h2>
-          <p className="text-sm text-slate-500 font-medium">Gestão de arquivos e instituições financeiras</p>
+          <h2 className="text-2xl font-bold text-slate-950">Importações Bancárias</h2>
+          <p className="text-sm text-slate-500 font-medium">Gestão de fontes e fluxos de dados</p>
         </div>
         <div className="flex items-center gap-3">
-          <button 
-            onClick={() => setIsManualModalOpen(true)}
-            className="px-5 py-2.5 text-slate-600 text-sm font-bold hover:bg-slate-100 rounded-xl transition-all"
-          >
-            Lançar Manual
-          </button>
-          <button 
-            onClick={() => setIsImportModalOpen(true)}
-            className="bg-slate-950 text-white px-6 py-2.5 rounded-xl text-sm font-bold hover:bg-slate-800 transition-all shadow-xl shadow-slate-900/10 flex items-center gap-2"
-          >
-            <i className="fas fa-file-import text-xs"></i> Importar Extrato CSV
+          {isAdmin && (
+            <button 
+              onClick={openResetPeriodConfirm}
+              className="px-5 py-2.5 text-rose-600 text-sm font-bold hover:bg-rose-50 rounded-xl transition-all border border-rose-100"
+            >
+              Resetar Período
+            </button>
+          )}
+          <button onClick={() => setIsManualModalOpen(true)} className="px-5 py-2.5 text-slate-600 text-sm font-bold hover:bg-slate-100 rounded-xl transition-all">Lançar Manual</button>
+          <button onClick={() => setIsImportModalOpen(true)} className="bg-slate-950 text-white px-6 py-2.5 rounded-xl text-sm font-bold hover:bg-slate-800 transition-all flex items-center gap-2 shadow-xl shadow-slate-900/10">
+            <i className="fas fa-file-import text-xs"></i> Importar CSV
           </button>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-        {/* Painel de Gestão de Fontes */}
         <div className="lg:col-span-1 space-y-6">
-          <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm overflow-hidden">
-            <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 mb-6 flex items-center gap-2">
-              <i className="fas fa-university text-blue-500"></i> Gestão de Instituições
+          <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
+            <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 mb-8 flex items-center gap-2">
+              <i className="fas fa-university text-blue-500"></i> Fontes Cadastradas
             </h3>
             
-            <form onSubmit={handleAddSource} className="mb-8">
-              <label className="block text-[9px] font-black uppercase tracking-widest text-slate-400 mb-2">Cadastrar Novo Banco</label>
-              <div className="relative">
-                <input 
-                  type="text" 
-                  placeholder="Ex: Nubank, Itaú..."
-                  className="w-full pl-4 pr-10 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:ring-2 focus:ring-blue-500/20 transition-all"
-                  value={newSourceName}
-                  onChange={(e) => setNewSourceName(e.target.value)}
-                />
-                <button type="submit" className="absolute right-2 top-1/2 -translate-y-1/2 text-blue-600 hover:text-blue-700 p-2">
-                  <i className="fas fa-plus-circle text-lg"></i>
-                </button>
-              </div>
-            </form>
-
             <div className="space-y-3">
-              <label className="block text-[9px] font-black uppercase tracking-widest text-slate-400 mb-1">Instituições Ativas</label>
               {sources.map(source => (
-                <div key={source.id} className="flex justify-between items-center p-3.5 bg-slate-50 rounded-xl group hover:bg-white hover:border hover:border-slate-100 transition-all">
-                  <div className="flex items-center gap-3">
-                    <div className="w-2 h-2 rounded-full bg-slate-300 group-hover:bg-blue-500 transition-colors"></div>
-                    <span className="text-xs font-bold text-slate-700">{source.name}</span>
-                  </div>
-                  {source.id !== 'ASAAS' && source.id !== 'MANUAL' ? (
-                    <button 
-                      onClick={() => handleDeleteSource(source.id)}
-                      className="text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-all p-1"
-                      title="Remover Instituição"
-                    >
-                      <i className="fas fa-trash-alt text-[10px]"></i>
-                    </button>
-                  ) : (
-                    <i className="fas fa-lock text-[10px] text-slate-200" title="Fonte Protegida (Padrão)"></i>
-                  )}
+                <div key={source.id} className="flex justify-between items-center p-4 bg-slate-50 rounded-2xl border border-slate-100 group hover:bg-white transition-all">
+                  <span className="text-xs font-bold text-slate-700">{source.name}</span>
                 </div>
               ))}
             </div>
           </div>
-          
-          <div className="bg-blue-600 text-white p-6 rounded-[2rem] shadow-xl shadow-blue-900/10">
-            <i className="fas fa-shield-alt mb-3 opacity-50"></i>
-            <p className="text-[10px] font-black uppercase tracking-widest mb-2 opacity-70">Multifonte</p>
-            <p className="text-xs leading-relaxed font-medium">Ao cadastrar um banco, ele se torna uma opção no **Importador**. Você pode usar o mesmo arquivo de extrato em diferentes "carteiras" bancárias.</p>
-          </div>
         </div>
 
-        {/* Tabela de Histórico */}
         <div className="lg:col-span-3">
           <div className="bg-white rounded-[2rem] border border-slate-100 shadow-sm overflow-hidden">
-            <div className="p-6 border-b border-slate-100 flex justify-between items-center">
-               <h3 className="text-xs font-black uppercase tracking-widest text-slate-400">Histórico de Auditoria</h3>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left">
-                <thead className="bg-slate-50/50 border-b border-slate-100 text-slate-400 text-[10px] uppercase font-black tracking-[0.15em]">
-                  <tr>
-                    <th className="px-8 py-5">Data / Hora</th>
-                    <th className="px-8 py-5">Arquivo / Fonte</th>
-                    <th className="px-8 py-5 text-center">Inseridas</th>
-                    <th className="px-8 py-5 text-center">Status</th>
+            <table className="w-full text-left">
+              <thead className="bg-slate-50 border-b border-slate-100 text-slate-400 text-[10px] uppercase font-black tracking-widest">
+                <tr>
+                  <th className="px-8 py-5">Data Importação</th>
+                  <th className="px-8 py-5">Arquivo / Fonte</th>
+                  <th className="px-8 py-5 text-center">Registros</th>
+                  <th className="px-8 py-5 text-center">Status</th>
+                  <th className="px-8 py-5 text-center">Excluir</th>
+                </tr>
+              </thead>
+              <tbody className="text-sm divide-y divide-slate-50">
+                {jobs.map(job => (
+                  <tr key={job.id} className="hover:bg-slate-50/50 transition-colors">
+                    <td className="px-8 py-5 text-slate-500">{new Date(job.timestamp).toLocaleString('pt-BR')}</td>
+                    <td className="px-8 py-5">
+                      <div className="font-bold text-slate-900">{job.fileName}</div>
+                      <div className="text-[10px] text-blue-600 font-black uppercase">{job.source}</div>
+                    </td>
+                    <td className="px-8 py-5 text-center font-bold text-emerald-600">{job.insertedCount}</td>
+                    <td className="px-8 py-5 text-center">{getStatusBadge(job.status)}</td>
+                    <td className="px-8 py-5 text-center">
+                      <button 
+                        onClick={() => openDeleteJobConfirm(job.id, job.fileName)}                    
+                        className="w-10 h-10 rounded-xl text-slate-300 hover:bg-rose-50 hover:text-rose-600 transition-all flex items-center justify-center mx-auto"
+                      >
+                        <i className="fas fa-trash-alt text-sm"></i>
+                      </button>
+                    </td>
                   </tr>
-                </thead>
-                <tbody className="text-sm divide-y divide-slate-50">
-                  {jobs.length > 0 ? jobs.map(job => (
-                    <tr key={job.id} className="hover:bg-slate-50/50 transition-colors">
-                      <td className="px-8 py-5 whitespace-nowrap text-slate-500 font-medium text-xs">
-                        {new Date(job.timestamp).toLocaleString('pt-BR')}
-                      </td>
-                      <td className="px-8 py-5">
-                        <div className="font-bold text-slate-900 mb-0.5 text-xs">{job.fileName}</div>
-                        <div className="text-[10px] text-blue-600 font-black uppercase tracking-wider">
-                          {sources.find(s => s.id === job.source)?.name || job.source}
-                        </div>
-                      </td>
-                      <td className="px-8 py-5 text-center">
-                        <span className="font-bold text-emerald-600 text-xs">{job.insertedCount}</span>
-                      </td>
-                      <td className="px-8 py-5 text-center">
-                        {getStatusBadge(job.status)}
-                      </td>
-                    </tr>
-                  )) : (
-                    <tr>
-                      <td colSpan={4} className="px-8 py-20 text-center text-slate-400 italic text-sm">
-                        Nenhuma importação registrada no histórico.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+                ))}
+                {jobs.length === 0 && !isLoading && (
+                  <tr><td colSpan={5} className="px-8 py-20 text-center text-slate-400 italic">Nenhuma importação ativa no sistema.</td></tr>
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
 
-      {isImportModalOpen && (
-        <ImportModal 
-          onClose={() => setIsImportModalOpen(false)} 
-          onSuccess={refreshData} 
-        />
+      {deleteConfirm.isOpen && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[500] flex items-center justify-center p-4">
+          <div className="bg-white rounded-[2.5rem] w-full max-w-sm overflow-hidden shadow-2xl animate-in zoom-in-95 duration-300 p-10 text-center border border-slate-200">
+            <div className={`w-20 h-20 ${deleteConfirm.type === 'RESET' ? 'bg-amber-50 text-amber-600' : 'bg-rose-50 text-rose-600'} rounded-3xl flex items-center justify-center mx-auto mb-6 text-3xl`}>
+              <i className={`fas ${deleteConfirm.type === 'RESET' ? 'fa-redo-alt' : 'fa-exclamation-triangle'}`}></i>
+            </div>
+            
+            <h3 className="text-xl font-bold text-slate-900 mb-2">
+              {deleteConfirm.type === 'RESET' ? 'Resetar Período?' : 'Confirmar Exclusão'}
+            </h3>
+            
+            <p className="text-sm text-slate-500 mb-6 leading-relaxed">
+              {deleteConfirm.type === 'RESET' ? (
+                <>Deseja limpar todos os dados de <strong>{deleteConfirm.label}</strong>? Transações e Snapshots serão removidos.</>
+              ) : (
+                <>Deseja excluir a importação <strong>{deleteConfirm.label}</strong>? Todas as transações vinculadas serão removidas do banco.</>
+              )}
+            </p>
+
+            {deleteConfirm.type === 'RESET' && (
+              <input 
+                type="text"
+                placeholder="Digite RESET para confirmar"
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 mb-4 text-center font-bold text-sm outline-none focus:border-rose-500"
+                value={deleteConfirm.confirmText}
+                onChange={e => setDeleteConfirm({...deleteConfirm, confirmText: e.target.value})}
+              />
+            )}
+
+            {deleteConfirm.error && (
+              <div className="mb-4 p-3 bg-rose-50 text-rose-600 text-[10px] font-bold rounded-lg border border-rose-100">{deleteConfirm.error}</div>
+            )}
+
+            <div className="grid grid-cols-2 gap-3">
+              <button 
+                onClick={() => setDeleteConfirm({ isOpen: false, type: null, id: null, label: null, error: null, isProcessing: false })}
+                className="py-4 bg-slate-100 text-slate-600 font-bold rounded-2xl text-[10px] tracking-widest uppercase disabled:opacity-50"
+                disabled={deleteConfirm.isProcessing}
+              >
+                Cancelar
+              </button>
+              <button 
+                onClick={executeAction}
+                disabled={deleteConfirm.isProcessing}
+                className={`py-4 ${deleteConfirm.type === 'RESET' ? 'bg-amber-600 hover:bg-amber-700' : 'bg-rose-600 hover:bg-rose-700'} text-white font-bold rounded-2xl text-[10px] tracking-widest uppercase shadow-lg disabled:opacity-50 flex items-center justify-center`}
+              >
+                {deleteConfirm.isProcessing ? <i className="fas fa-circle-notch fa-spin"></i> : "Confirmar"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
-      {isManualModalOpen && (
-        <ManualEntryModal 
-          onClose={() => setIsManualModalOpen(false)} 
-          onSuccess={refreshData} 
-        />
-      )}
+
+      {isImportModalOpen && <ImportModal onClose={() => setIsImportModalOpen(false)} onSuccess={refreshLocalData} />}
+      {isManualModalOpen && <ManualEntryModal onClose={() => setIsManualModalOpen(false)} onSuccess={refreshLocalData} />}
     </div>
   );
 };

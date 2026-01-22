@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Transaction, TransactionSource, TransactionType, FinancialInstitution } from '../types';
+import { Transaction, TransactionSource, TransactionType, FinancialInstitution, AuthSession } from '../types';
 import { storageService } from '../services/storageService';
 import { authService } from '../services/authService';
 import { createManualKey } from '../utils/crypto';
@@ -25,11 +25,11 @@ const ManualEntryModal: React.FC<ManualEntryModalProps> = ({ onClose, onSuccess 
     observations: ''
   });
   const [isClassifying, setIsClassifying] = useState(false);
-  
-  const session = authService.getSession();
+  const [session, setSession] = useState<AuthSession | null>(null);
 
-  // DO: Fetch sources asynchronously and update state
+  // DO: Fetch sources and session asynchronously and update state to avoid property access on Promise
   useEffect(() => {
+    authService.getSession().then(setSession);
     const fetchSources = async () => {
       const data = await storageService.getSources();
       setSources(data);
@@ -78,20 +78,32 @@ const ManualEntryModal: React.FC<ManualEntryModalProps> = ({ onClose, onSuccess 
 
     const [year, month, day] = formData.date.split('-').map(Number);
 
+    // Fix: Added missing properties required by the Transaction interface (originalDate, originalDescription, originalAmount, originalType, auditStatus)
     const transaction: Transaction = {
-      ...formData,
+      date: formData.date,
+      description: formData.description,
       amount,
+      type: formData.type,
+      category: formData.category,
+      source: formData.source,
+      paymentMethod: formData.paymentMethod,
+      observations: formData.observations,
       account: sources.find(s => s.id === formData.source)?.name || 'Caixa Geral',
       status: 'CONFIRMADA',
       transactionKey: createManualKey(formData.date, amount, formData.type, formData.description, formData.category),
       confidenceScore: 100,
       month,
       year,
-      createdBy: session.user.id
+      createdBy: session.user.id,
+      originalDate: formData.date,
+      originalDescription: formData.description,
+      originalAmount: amount,
+      originalType: formData.type,
+      auditStatus: 'AUDITADO'
     };
 
-    // Fix: added await for saveTransactions call which returns a Promise
-    const { inserted } = await storageService.saveTransactions([transaction], undefined, session.user.id);
+    // Fix: Corrected storageService.saveTransactions call to match its definition (expects 1 argument).
+    const { inserted } = await storageService.saveTransactions([transaction]);
     if (inserted > 0) {
       // DO: await async storage calls
       await storageService.logAction(session.user.id, session.user.name, 'LANCAMENTO_MANUAL', `Lançou manualmente: ${formData.description} (${formData.category})`);
